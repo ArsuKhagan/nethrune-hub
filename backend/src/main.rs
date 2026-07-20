@@ -2,6 +2,7 @@ use axum::{routing::get, Json, Router};
 use serde::Serialize;
 use std::collections::HashSet;
 use sysinfo::{Disks, System};
+use tower_http::cors::CorsLayer;
 
 #[derive(Serialize)]
 struct SystemInfo {
@@ -102,7 +103,8 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/api/system/info", get(system_info))
-        .route("/api/system/resources", get(system_resources));
+        .route("/api/system/resources", get(system_resources))
+        .layer(CorsLayer::permissive());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
         .await
