@@ -1,4 +1,6 @@
-use axum::{routing::get, Json, Router};
+use axum::{http::StatusCode, routing::get, Json, Router};
+use bollard::query_parameters::ListContainersOptionsBuilder;
+use bollard::Docker;
 use serde::Serialize;
 use std::collections::HashSet;
 use sysinfo::{Disks, System};
@@ -98,12 +100,49 @@ async fn system_resources() -> Json<SystemResources> {
     })
 }
 
+#[derive(Serialize)]
+struct ContainerSummary {
+    id: String,
+    name: String,
+    image: String,
+    status: String,
+}
+
+async fn docker_containers() -> Result<Json<Vec<ContainerSummary>>, (StatusCode, String)> {
+    let docker = Docker::connect_with_socket_defaults()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let options = ListContainersOptionsBuilder::default().all(true).build();
+
+    let containers = docker
+        .list_containers(Some(options))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let result = containers
+        .into_iter()
+        .map(|c| ContainerSummary {
+            id: c.id.unwrap_or_default(),
+            name: c
+                .names
+                .and_then(|names| names.into_iter().next())
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_default(),
+            image: c.image.unwrap_or_default(),
+            status: c.status.unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
 #[tokio::main]
 async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/api/system/info", get(system_info))
         .route("/api/system/resources", get(system_resources))
+        .route("/api/docker/containers", get(docker_containers))
         .layer(CorsLayer::permissive());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
